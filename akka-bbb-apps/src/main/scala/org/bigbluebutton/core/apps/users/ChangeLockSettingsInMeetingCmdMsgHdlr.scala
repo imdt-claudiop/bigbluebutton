@@ -34,7 +34,8 @@ trait ChangeLockSettingsInMeetingCmdMsgHdlr extends RightsManagementTrait {
         lockOnJoin = msg.body.lockOnJoin,
         lockOnJoinConfigurable = msg.body.lockOnJoinConfigurable,
         hideViewersCursor = msg.body.hideViewersCursor,
-        hideViewersAnnotation = msg.body.hideViewersAnnotation
+        hideViewersAnnotation = msg.body.hideViewersAnnotation,
+        webcamsOnlyForModerator = msg.body.webcamsOnlyForModerator
       )
 
       if (!MeetingStatus2x.permissionsEqual(liveMeeting.status, settings) || !MeetingStatus2x.permisionsInitialized(liveMeeting.status)) {
@@ -94,6 +95,11 @@ trait ChangeLockSettingsInMeetingCmdMsgHdlr extends RightsManagementTrait {
             outGW.send(notifyEvent)
             NotificationDAO.insert(notifyEvent)
           }
+        }
+
+        if (oldPermissions.webcamsOnlyForModerator != settings.webcamsOnlyForModerator
+          && settings.webcamsOnlyForModerator) {
+          LockSettingsUtil.enforceCamLockSettingsForAllUsers(liveMeeting, outGW)
         }
 
         if (oldPermissions.disableMic != settings.disableMic) {
@@ -253,6 +259,7 @@ trait ChangeLockSettingsInMeetingCmdMsgHdlr extends RightsManagementTrait {
           lockOnJoinConfigurable = settings.lockOnJoinConfigurable,
           hideViewersCursor = settings.hideViewersCursor,
           hideViewersAnnotation = settings.hideViewersAnnotation,
+          webcamsOnlyForModerator = settings.webcamsOnlyForModerator,
           msg.body.setBy
         )
         val header = BbbClientMsgHeader(
