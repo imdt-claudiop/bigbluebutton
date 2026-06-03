@@ -3,7 +3,7 @@ package org.bigbluebutton.core.apps.webcam
 import org.bigbluebutton.common2.msgs._
 import org.bigbluebutton.core.apps.PermissionCheck
 import org.bigbluebutton.core.bus.MessageBus
-import org.bigbluebutton.core.db.{ MeetingUsersPoliciesDAO, NotificationDAO }
+import org.bigbluebutton.core.db.{ MeetingLockSettingsDAO, NotificationDAO }
 import org.bigbluebutton.core.models.{ RegisteredUsers, Roles, Users2x }
 import org.bigbluebutton.core.running.LiveMeeting
 import org.bigbluebutton.core2.message.senders.MsgBuilder
@@ -53,7 +53,7 @@ trait UpdateWebcamsOnlyForModeratorCmdMsgHdlr {
           case Some(value) => {
             log.info(s"Change webcams only for moderator status. meetingId=${meetingId} value=${value}")
 
-            MeetingUsersPoliciesDAO.updateWebcamsOnlyForModerator(meetingId, msg.body.webcamsOnlyForModerator)
+            MeetingLockSettingsDAO.updateWebcamsOnlyForModerator(meetingId, msg.body.webcamsOnlyForModerator)
 
             if (value) {
               val notifyEvent = MsgBuilder.buildNotifyAllInMeetingEvtMsg(

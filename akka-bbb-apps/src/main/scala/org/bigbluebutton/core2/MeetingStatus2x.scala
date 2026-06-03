@@ -4,16 +4,17 @@ import java.util.concurrent.TimeUnit
 import org.bigbluebutton.core.util.TimeUtil
 
 case class Permissions(
-    disableCam:             Boolean = false,
-    disableMic:             Boolean = false,
-    disablePrivChat:        Boolean = false,
-    disablePubChat:         Boolean = false,
-    disableNotes:           Boolean = false,
-    hideUserList:           Boolean = false,
-    lockOnJoin:             Boolean = true,
-    lockOnJoinConfigurable: Boolean = false,
-    hideViewersCursor:      Boolean = false,
-    hideViewersAnnotation:  Boolean = false
+    disableCam:              Boolean = false,
+    disableMic:              Boolean = false,
+    disablePrivChat:         Boolean = false,
+    disablePubChat:          Boolean = false,
+    disableNotes:            Boolean = false,
+    hideUserList:            Boolean = false,
+    lockOnJoin:              Boolean = true,
+    lockOnJoinConfigurable:  Boolean = false,
+    hideViewersCursor:       Boolean = false,
+    hideViewersAnnotation:   Boolean = false,
+    webcamsOnlyForModerator: Boolean = false
 )
 
 case class MeetingExtensionProp(maxExtensions: Int = 2, numExtensions: Int = 0, extendByMinutes: Int = 20,
@@ -91,8 +92,9 @@ object MeetingStatus2x {
     status2x.voiceRecordings.values.filter(s => s.recording).toVector
   }
 
-  def setWebcamsOnlyForModerator(status: MeetingStatus2x, value: Boolean) = status.webcamsOnlyForModerator = value
-  def webcamsOnlyForModeratorEnabled(status: MeetingStatus2x): Boolean = status.webcamsOnlyForModerator
+  def setWebcamsOnlyForModerator(status: MeetingStatus2x, value: Boolean) =
+    status.permissions = status.permissions.copy(webcamsOnlyForModerator = value)
+  def webcamsOnlyForModeratorEnabled(status: MeetingStatus2x): Boolean = status.permissions.webcamsOnlyForModerator
   def setMultiUserWhiteboardEnabled(status: MeetingStatus2x, value: Boolean) = status.multiUserWhiteboardEnabled = value
   def multiUserWhiteboardEnabled(status: MeetingStatus2x): Boolean = status.multiUserWhiteboardEnabled
   def permisionsInitialized(status: MeetingStatus2x): Boolean = status.permissionsInited
@@ -129,7 +131,6 @@ class MeetingStatus2x {
 
   private var extension = new MeetingExtensionProp
 
-  private var webcamsOnlyForModerator = false
   private var multiUserWhiteboardEnabled = false
 
   private var authedUserHasJoined = false

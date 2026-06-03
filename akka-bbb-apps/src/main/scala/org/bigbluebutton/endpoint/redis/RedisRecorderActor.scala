@@ -805,7 +805,7 @@ class RedisRecorderActor(
 
   private def handleStarterConfigurations(msg: MeetingCreatedEvtMsg): Unit = {
     val ev = new MeetingConfigurationEvent()
-    ev.setWebcamsOnlyForModerator(msg.body.props.usersProp.webcamsOnlyForModerator)
+    ev.setWebcamsOnlyForModerator(msg.body.props.lockSettingsProps.webcamsOnlyForModerator)
     record(msg.body.props.meetingProp.intId, ev.toMap().asJava)
   }
 

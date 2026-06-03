@@ -50,7 +50,6 @@ case class VoiceProp(telVoice: String, voiceConf: String, dialNumber: String, mu
 case class UsersProp(
     maxUsers:                     Int,
     maxUserConcurrentAccesses:    Int,
-    webcamsOnlyForModerator:      Boolean,
     multiUserWhiteboardEnabled:   Boolean,
     userCameraCap:                Int,
     guestPolicy:                  String,
@@ -74,7 +73,8 @@ case class LockSettingsProps(
     lockOnJoin:             Boolean,
     lockOnJoinConfigurable: Boolean,
     hideViewersCursor:      Boolean,
-    hideViewersAnnotation:  Boolean
+    hideViewersAnnotation:  Boolean,
+    webcamsOnlyForModerator: Boolean
 )
 
 case class SystemProps(

@@ -212,9 +212,6 @@ class MeetingActor(
   }
   MeetingVoiceDAO.updateMuteOnStart(liveMeeting.props.meetingProp.intId, liveMeeting.status)
 
-  // Set webcamsOnlyForModerator property in case we didn't after meeting creation
-  MeetingStatus2x.setWebcamsOnlyForModerator(liveMeeting.status, liveMeeting.props.usersProp.webcamsOnlyForModerator)
-
   initLockSettings(liveMeeting, liveMeeting.props.lockSettingsProps)
 
   initSharedNotes(liveMeeting)
@@ -335,7 +332,8 @@ class MeetingActor(
       lockOnJoin = lockSettingsProp.lockOnJoin,
       lockOnJoinConfigurable = lockSettingsProp.lockOnJoinConfigurable,
       hideViewersCursor = lockSettingsProp.hideViewersCursor,
-      hideViewersAnnotation = lockSettingsProp.hideViewersAnnotation
+      hideViewersAnnotation = lockSettingsProp.hideViewersAnnotation,
+      webcamsOnlyForModerator = lockSettingsProp.webcamsOnlyForModerator
     )
 
     MeetingStatus2x.initializePermissions(liveMeeting.status)
