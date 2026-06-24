@@ -43,6 +43,7 @@ import ColorStyleButton from './color-style-button/component';
 import NestBlockButton from './nest-block-button/component';
 import UnnestBlockButton from './unnest-block-button/component';
 import createLatexBlock from './latex-block/LatexBlock';
+import createChartBlock from './chart-block/ChartBlock';
 import 'katex/dist/katex.min.css';
 
 // Force-retain `Awareness` against a webpack tree-shaking interaction that
@@ -192,6 +193,7 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
     blockSpecs: {
       ...remainingBlockSpecs,
       latex: createLatexBlock(),
+      chart: createChartBlock(),
     },
   });
 
@@ -452,6 +454,42 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
           .latex-block-textarea::placeholder {
             color: #9b9a97;
           }
+          /* Chart block: remove selection outline like the LaTeX block */
+          .ProseMirror-selectednode > .bn-block-content > .chart-block,
+          .bn-block-content.ProseMirror-selectednode > .chart-block {
+            outline: none !important;
+            border-radius: 0 !important;
+          }
+          .chart-block-rendered {
+            width: 100%;
+            cursor: pointer;
+          }
+          .chart-block-content {
+            width: 100%;
+          }
+          .chart-block-editing {
+            display: flex;
+            flex-direction: column;
+          }
+          .chart-block-textarea {
+            width: 100%;
+            font-family: monospace;
+            resize: vertical;
+          }
+          .chart-block-textarea::placeholder {
+            color: #9b9a97;
+          }
+          .chart-block-placeholder {
+            color: #9b9a97;
+          }
+          .chart-block-error {
+            color: #c03221;
+          }
+          .chart-block-hint {
+            color: #9b9a97;
+            font-size: 0.8em;
+            margin-top: 0.25em;
+          }
         `}
       </style>
       {notificationErrorMessage && (
@@ -487,6 +525,15 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
                 aliases: ['latex', 'math', 'formula', 'equation'],
                 group: 'Other',
                 subtext: 'Insert a LaTeX math formula',
+              } as DefaultReactSuggestionItem,
+              {
+                title: 'Chart',
+                onItemClick: () => {
+                  insertOrUpdateBlockForSlashMenu(editor, { type: 'chart' });
+                },
+                aliases: ['chart', 'pie', 'scatter', 'graph'],
+                group: 'Other',
+                subtext: 'Insert a pie or scatter chart from JSON',
               } as DefaultReactSuggestionItem,
             ],
             query,
