@@ -4,13 +4,15 @@ import {
   ConnectionState,
   RoomEvent,
   ParticipantEvent,
-  type TrackPublication,
+  TrackPublication,
   type LocalTrack,
   type LocalTrackPublication,
   type RemoteTrack,
   type RemoteTrackPublication,
+  type RemoteParticipant,
   type Room,
   type TrackPublishOptions,
+  type SubscriptionError,
 } from 'livekit-client';
 import Auth from '/imports/ui/services/auth';
 import BaseAudioBridge from './base';
@@ -31,6 +33,22 @@ const UNPUBLISH_OP = 'unpublish';
 const IS_CHROME = browserInfo.isChrome;
 const ROOM_CONNECTION_TIMEOUT = 15000;
 const DEFAULT_UNPUBLISH_AFTER_MUTE_MS = 5000;
+
+// Subscriber-side audio health check (issue 25313). LiveKit does not surface
+// subscriber peer-connection failures: pc.close() emits no connectionstatechange
+// and there is no public RoomEvent for subscriber transport state. So we watch
+// inbound audio flow through the public getStats API and, when a subscribed and
+// unmuted remote microphone stops delivering packets, trigger the same fatal
+// reconnect the publisher path already uses (full room reconnect rebuilds both
+// transports). This catches both pc.close() and silent media stalls.
+const INBOUND_HEALTH_POLL_MS = 2000;
+// Consecutive flat polls (no packetsReceived advance) before declaring a stall.
+// ~6s of silence on a track that should be delivering audio.
+const INBOUND_STALL_THRESHOLD = 3;
+// After a (re)connect or a recovery dispatch, suppress stall detection for this
+// window so subscriptions can re-establish and a reconnect that does not restore
+// flow cannot immediately re-trigger another one.
+const RECONNECT_GRACE_MS = 10000;
 
 interface JoinOptions {
   inputStream: MediaStream;
@@ -84,6 +102,21 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
   // setSenderTrackEnabled.
   private shouldBeMuted: boolean;
 
+  // Per-remote-track inbound audio flow state, keyed by remote track SID. Holds
+  // the last observed packetsReceived and how many consecutive polls it stayed
+  // flat while audio was expected.
+  private inboundFlowState: Map<string, { lastPackets: number; flatPolls: number }>;
+
+  // Interval handle for the inbound audio health check.
+  private inboundHealthMonitor: ReturnType<typeof setInterval> | null;
+
+  // Guards against overlapping async polls.
+  private isCheckingInboundFlow: boolean;
+
+  // Timestamp (ms) until which stall detection is suppressed (post-reconnect /
+  // post-recovery grace window).
+  private inboundGraceUntil: number;
+
   private static assembleTrackName(
     clientSessionId: string,
     deviceId: string | null | undefined,
@@ -121,6 +154,11 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     this.isPublishPending = false;
     this.publishGeneration = 0;
     this.shouldBeMuted = true;
+    this.inboundFlowState = new Map();
+    this.inboundHealthMonitor = null;
+    this.isCheckingInboundFlow = false;
+    this.inboundGraceUntil = 0;
+    this.checkInboundAudioFlow = this.checkInboundAudioFlow.bind(this);
 
     this.observeLiveKitEvents();
   }
@@ -282,6 +320,12 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
         role: this.role,
       },
     }, `LiveKit: subscribed to microphone - ${trackSid}`);
+
+    // A freshly (re)subscribed track gets a clean flow baseline so a prior,
+    // stale packet count cannot be misread as a stall, and ensures the health
+    // check is running while we have remote audio to watch.
+    this.inboundFlowState.delete(trackSid);
+    this.startInboundHealthMonitor();
   }
 
   private handleTrackUnsubscribed(
@@ -300,17 +344,38 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
         role: this.role,
       },
     }, `LiveKit: unsubscribed from microphone - ${trackSid}`);
+
+    // Stop watching a track we are no longer subscribed to (normal churn:
+    // participant left, mute-driven unpublish, selective-subscription).
+    this.inboundFlowState.delete(trackSid);
   }
 
-  private handleTrackSubscriptionFailed(trackSid: string): void {
+  private handleTrackSubscriptionFailed(
+    trackSid: string,
+    participant?: RemoteParticipant,
+    reason?: SubscriptionError,
+  ): void {
+    const publication = this.findRemoteAudioPublication(trackSid);
+
     logger.error({
       logCode: 'livekit_audio_subscription_failed',
       extraInfo: {
         bridge: this.bridgeName,
         trackSid,
         role: this.role,
+        participant: participant?.identity,
+        reason,
+        isMicrophone: !!publication,
       },
     }, `LiveKit: failed to subscribe to microphone - ${trackSid}`);
+
+    // A subscription failure is an unambiguous subscriber-side fault with no
+    // self-recovery of its own. Only act when the failed track is a microphone
+    // (this is the audio bridge); other kinds are out of scope. If it cannot be
+    // resolved, the getStats health check remains the backstop.
+    if (!publication) return;
+
+    this.triggerSubscriberRecovery(`subscription failed - ${trackSid}`);
   }
 
   private handleTrackSubscriptionStatusChanged(
@@ -331,6 +396,20 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
         status,
       },
     }, `LiveKit: microphone subscription status changed - ${trackSid} to ${status}`);
+
+    // Keep the health check scoped to tracks we are actually subscribed to. A
+    // fresh Subscribed transition reseeds the flow baseline (resubscribe after a
+    // reconnect must not inherit a stale packet count); leaving Subscribed stops
+    // watching the track. The genuine subscriber failures this issue targets
+    // (pc.close, silent media stall) emit no status change at all - they are
+    // caught by the getStats poll - while an outright subscription failure is
+    // handled by handleTrackSubscriptionFailed above.
+    if (status === TrackPublication.SubscriptionStatus.Subscribed) {
+      this.inboundFlowState.delete(trackSid);
+      this.startInboundHealthMonitor();
+    } else {
+      this.inboundFlowState.delete(trackSid);
+    }
   }
 
   private handleLocalTrackMuted(publication: TrackPublication): void {
@@ -434,6 +513,12 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     // A full reconnect republishes local tracks using the SDK's local mute
     // state, which may have drifted from BBB's authoritative state. Reinforce.
     this.reinforceMuteState('room_reconnected');
+
+    // Reset the inbound stall detector and hold off detection while subscriptions
+    // re-establish, so a reconnect that does restore flow starts from a clean
+    // baseline and one that does not cannot immediately re-trigger.
+    this.inboundFlowState.clear();
+    this.inboundGraceUntil = Date.now() + RECONNECT_GRACE_MS;
   }
 
   // Re-assert the desired muted state onto the local microphone track. LiveKit
@@ -510,10 +595,200 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
       },
     }, 'LiveKit: fatal audio publish error detected, triggering reconnection');
 
-    // Handled in /ui/components/livekit/component (BBBLiveKitRoom)
+    this.dispatchFatalReconnect(error);
+  }
+
+  // Emit the shared fatal-error event consumed by the LiveKit room component
+  // (BBBLiveKitRoom), which performs a full room reconnect. This is the single
+  // recovery path reused by both the publisher (fatal publish error) and the
+  // subscriber (subscription failure / inbound stall) sides. The component's
+  // own isReconnectingRef + MAX_CONN_ATTEMPTS guards bound the reconnect storm.
+  // eslint-disable-next-line class-methods-use-this
+  private dispatchFatalReconnect(error: Error): void {
     window.dispatchEvent(new CustomEvent(LK_FATAL_ERROR_EVENT, {
       detail: { error, source: 'audio' },
     }));
+  }
+
+  // Resolve a remote track SID to its microphone publication, if any. Used to
+  // confirm a subscription failure concerns audio before acting on it.
+  private findRemoteAudioPublication(trackSid: string): RemoteTrackPublication | null {
+    let found: RemoteTrackPublication | null = null;
+
+    this.liveKitRoom.remoteParticipants.forEach((participant) => {
+      const pub = participant.audioTrackPublications.get(trackSid);
+
+      if (pub && LiveKitAudioBridge.isMicrophonePublication(pub)) found = pub;
+    });
+
+    return found;
+  }
+
+  private isInboundCheckSuppressed(): boolean {
+    return Date.now() < this.inboundGraceUntil;
+  }
+
+  // Route a subscriber-side audio failure into the shared fatal reconnect. A
+  // grace window + state reset here, plus the component-side guards, keep a
+  // failed recovery from looping.
+  private triggerSubscriberRecovery(reason: string): void {
+    if (this.isInboundCheckSuppressed()) return;
+
+    logger.error({
+      logCode: 'livekit_audio_subscriber_recovery',
+      extraInfo: {
+        bridge: this.bridgeName,
+        role: this.role,
+        reason,
+      },
+    }, `LiveKit: subscriber audio failure detected, triggering reconnection - ${reason}`);
+
+    this.inboundGraceUntil = Date.now() + RECONNECT_GRACE_MS;
+    this.inboundFlowState.clear();
+    this.dispatchFatalReconnect(new Error(`LiveKit subscriber audio recovery: ${reason}`));
+  }
+
+  private startInboundHealthMonitor(): void {
+    if (this.inboundHealthMonitor) return;
+
+    this.inboundHealthMonitor = setInterval(this.checkInboundAudioFlow, INBOUND_HEALTH_POLL_MS);
+  }
+
+  private stopInboundHealthMonitor(): void {
+    if (this.inboundHealthMonitor) {
+      clearInterval(this.inboundHealthMonitor);
+      this.inboundHealthMonitor = null;
+    }
+
+    this.inboundFlowState.clear();
+    this.inboundGraceUntil = 0;
+  }
+
+  // Sum inbound-rtp audio packetsReceived for a subscribed remote track via the
+  // public getStats API. Returns null when no inbound audio flow can be observed
+  // - either stats are unavailable (e.g. the underlying PC was closed, which
+  // makes getStats reject) or there is no inbound-rtp audio entry. A null on a
+  // track we were already measuring is itself a sign the inbound path died.
+  // eslint-disable-next-line class-methods-use-this
+  private static async getInboundAudioPackets(track: RemoteTrack): Promise<number | null> {
+    let report: RTCStatsReport | undefined;
+
+    try {
+      report = await track.getRTCStatsReport();
+    } catch {
+      return null;
+    }
+
+    if (!report) return null;
+
+    let packets = 0;
+    let sawInbound = false;
+
+    report.forEach((stat) => {
+      if (stat.type === 'inbound-rtp' && stat.kind === 'audio') {
+        sawInbound = true;
+        packets += stat.packetsReceived || 0;
+      }
+    });
+
+    return sawInbound ? packets : null;
+  }
+
+  // Poll inbound audio flow on every subscribed, unmuted remote microphone. If a
+  // track that should be delivering audio stays flat for INBOUND_STALL_THRESHOLD
+  // consecutive polls, route it into the shared fatal reconnect. Muted publishers
+  // produce no packets by design, so they are skipped (no false trigger on mute).
+  private async checkInboundAudioFlow(): Promise<void> {
+    if (this.isCheckingInboundFlow) return;
+    if (this.isInboundCheckSuppressed()) return;
+    if (this.liveKitRoom.state !== ConnectionState.Connected) return;
+
+    this.isCheckingInboundFlow = true;
+
+    try {
+      const liveSids = new Set<string>();
+      const candidates: RemoteTrackPublication[] = [];
+
+      this.liveKitRoom.remoteParticipants.forEach((participant) => {
+        participant.audioTrackPublications.forEach((publication) => {
+          if (!LiveKitAudioBridge.isMicrophonePublication(publication)) return;
+
+          const { trackSid } = publication;
+
+          // Audio is only EXPECTED when we are subscribed, the track is attached,
+          // and the publisher is actively sending (not muted). Anything else
+          // (muted publisher, unsubscribed, no track) is not a failure.
+          if (publication.isSubscribed
+            && publication.track
+            && !publication.isMuted) {
+            liveSids.add(trackSid);
+            candidates.push(publication);
+          } else {
+            this.inboundFlowState.delete(trackSid);
+          }
+        });
+      });
+
+      // Drop state for tracks that are no longer live candidates.
+      Array.from(this.inboundFlowState.keys()).forEach((sid) => {
+        if (!liveSids.has(sid)) this.inboundFlowState.delete(sid);
+      });
+
+      let stalledSid: string | null = null;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const publication of candidates) {
+        const { trackSid } = publication;
+        const track = publication.track as RemoteTrack;
+        // eslint-disable-next-line no-await-in-loop
+        const packets = await LiveKitAudioBridge.getInboundAudioPackets(track);
+        const prev = this.inboundFlowState.get(trackSid);
+
+        if (packets === null) {
+          // No measurable inbound flow this poll. For a track we had already
+          // baselined (was delivering audio), a vanished/erroring stats report
+          // means the inbound path died - count it as a flat poll. Without a
+          // baseline yet, wait for stats to appear before judging.
+          if (prev) {
+            const flatPolls = prev.flatPolls + 1;
+            this.inboundFlowState.set(trackSid, { lastPackets: prev.lastPackets, flatPolls });
+
+            if (flatPolls >= INBOUND_STALL_THRESHOLD) {
+              stalledSid = trackSid;
+              break;
+            }
+          }
+        } else if (!prev || packets > prev.lastPackets) {
+          // First observation (seed baseline) or audio is flowing - no stall.
+          this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls: 0 });
+        } else {
+          // Expected audio but no new packets - count a flat poll.
+          const flatPolls = prev.flatPolls + 1;
+          this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls });
+
+          if (flatPolls >= INBOUND_STALL_THRESHOLD) {
+            stalledSid = trackSid;
+            break;
+          }
+        }
+      }
+
+      if (stalledSid) {
+        this.triggerSubscriberRecovery(`inbound audio stalled - ${stalledSid}`);
+      }
+    } catch (error) {
+      logger.warn({
+        logCode: 'livekit_audio_inbound_health_check_error',
+        extraInfo: {
+          errorMessage: (error as Error)?.message,
+          errorName: (error as Error)?.name,
+          bridge: this.bridgeName,
+          role: this.role,
+        },
+      }, `LiveKit: inbound audio health check failed - ${(error as Error)?.message}`);
+    } finally {
+      this.isCheckingInboundFlow = false;
+    }
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -1401,6 +1676,10 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
 
       if (!muted) await this.publish(inputStream);
 
+      // Start watching inbound audio flow from remote mics (covers listeners and
+      // full-audio participants alike). Idempotent; also (re)started on subscribe.
+      this.startInboundHealthMonitor();
+
       this.audioStarted();
     } catch (error) {
       logger.error({
@@ -1457,6 +1736,8 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
   }
 
   exitAudio(): Promise<boolean> {
+    this.stopInboundHealthMonitor();
+
     return this.liveKitRoom.localParticipant.setMicrophoneEnabled(false)
       .then(() => this.unpublish())
       .then(() => {
