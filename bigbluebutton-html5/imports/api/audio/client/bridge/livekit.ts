@@ -42,9 +42,16 @@ const DEFAULT_UNPUBLISH_AFTER_MUTE_MS = 5000;
 // reconnect the publisher path already uses (full room reconnect rebuilds both
 // transports). This catches both pc.close() and silent media stalls.
 const INBOUND_HEALTH_POLL_MS = 2000;
-// Consecutive flat polls (no packetsReceived advance) before declaring a stall.
-// ~6s of silence on a track that should be delivering audio.
+// Consecutive flat polls (insufficient packetsReceived advance) before declaring
+// a stall. ~6s of silence on a track that should be delivering audio.
 const INBOUND_STALL_THRESHOLD = 3;
+// Minimum packetsReceived advance per poll for inbound audio to count as
+// "flowing". A live publisher delivers ~100 audio packets per 2s poll (50/s
+// Opus), so this is far below healthy. A dead/stalled transport delivers ~0 - but
+// often a tiny trickle (a stray packet, RTCP, a late retransmit), so a strict
+// "any advance" check would be defeated by that trickle. Anything under this
+// floor is treated as not flowing.
+const INBOUND_MIN_PACKETS_PER_POLL = 3;
 // After a (re)connect or a recovery dispatch, suppress stall detection for this
 // window so subscriptions can re-establish and a reconnect that does not restore
 // flow cannot immediately re-trigger another one.
@@ -756,9 +763,9 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
         const prev = this.inboundFlowState.get(trackSid);
 
         if (packets === null) {
-          // Only a flat/dead reading on a track that WAS delivering audio counts
-          // as a failure - a dead subscriber transport. A track that never
-          // received a packet (lastPackets === 0) is still ramping up; wait.
+          // Only a dead reading on a track that WAS delivering audio counts as a
+          // failure - a dead subscriber transport (getStats unreachable / no
+          // track). A track that never received a packet is still ramping; wait.
           if (prev && prev.lastPackets > 0) {
             const flatPolls = prev.flatPolls + 1;
             this.inboundFlowState.set(trackSid, { lastPackets: prev.lastPackets, flatPolls });
@@ -768,12 +775,17 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
               break;
             }
           }
-        } else if (!prev || packets > prev.lastPackets) {
-          // First observation (seed baseline) or audio is flowing - no stall.
+        } else if (!prev) {
+          // First observation - seed the baseline, do not judge yet.
+          this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls: 0 });
+        } else if (packets - prev.lastPackets >= INBOUND_MIN_PACKETS_PER_POLL) {
+          // Meaningful inbound flow since the last poll - audio is healthy.
           this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls: 0 });
         } else if (prev.lastPackets > 0) {
-          // Was delivering audio and is now flat - count a flat poll. (A track
-          // still at zero has not started yet; keep waiting rather than flag it.)
+          // Audio is expected (subscribed, publisher unmuted) but flow is at/near
+          // zero - a frozen counter or a trickle that never resumes. This is the
+          // silent stall. lastPackets advances to the current count so we keep
+          // measuring the per-poll rate rather than an accumulating total.
           const flatPolls = prev.flatPolls + 1;
           this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls });
 
@@ -781,6 +793,10 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
             stalledSid = trackSid;
             break;
           }
+        } else {
+          // Never delivered meaningful audio yet (still ramping from zero). Keep
+          // the baseline current and wait rather than flag it as dead.
+          this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls: 0 });
         }
       }
 
