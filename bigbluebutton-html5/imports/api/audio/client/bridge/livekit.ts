@@ -694,10 +694,18 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     return sawInbound ? packets : null;
   }
 
-  // Poll inbound audio flow on every subscribed, unmuted remote microphone. If a
-  // track that should be delivering audio stays flat for INBOUND_STALL_THRESHOLD
-  // consecutive polls, route it into the shared fatal reconnect. Muted publishers
-  // produce no packets by design, so they are skipped (no false trigger on mute).
+  // Poll inbound audio flow on every remote microphone we should be hearing. When
+  // audio is EXPECTED (we are subscribed and the publisher is unmuted) but the
+  // inbound packet count does not advance over INBOUND_STALL_THRESHOLD consecutive
+  // polls, route it into the shared fatal reconnect. This covers two failure
+  // shapes that LiveKit never surfaces on its own:
+  //   - silent media stall (PC still open, packets flatline) -> flat packet count.
+  //   - dead subscriber transport (pc.close(): getStats rejects / the track is
+  //     gone) -> null reading on a track that WAS delivering audio.
+  // Legitimate silence is excluded up front: a muted publisher (mod mute) and a
+  // track we deliberately unsubscribed from (selective subscription) are skipped,
+  // so neither produces a false trigger. A track that never delivered a packet is
+  // never flagged as dead (nothing was lost yet).
   private async checkInboundAudioFlow(): Promise<void> {
     if (this.isCheckingInboundFlow) return;
     if (this.isInboundCheckSuppressed()) return;
@@ -706,50 +714,52 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     this.isCheckingInboundFlow = true;
 
     try {
-      const liveSids = new Set<string>();
-      const candidates: RemoteTrackPublication[] = [];
+      const expected: RemoteTrackPublication[] = [];
 
       this.liveKitRoom.remoteParticipants.forEach((participant) => {
         participant.audioTrackPublications.forEach((publication) => {
           if (!LiveKitAudioBridge.isMicrophonePublication(publication)) return;
 
-          const { trackSid } = publication;
-
-          // Audio is only EXPECTED when we are subscribed, the track is attached,
-          // and the publisher is actively sending (not muted). Anything else
-          // (muted publisher, unsubscribed, no track) is not a failure.
-          if (publication.isSubscribed
-            && publication.track
-            && !publication.isMuted) {
-            liveSids.add(trackSid);
-            candidates.push(publication);
-          } else {
-            this.inboundFlowState.delete(trackSid);
+          // Audio is only EXPECTED when we want the track (subscribed) and the
+          // publisher is sending it (not muted). A muted publisher or a
+          // deliberately-unsubscribed track is legitimate silence, not a failure:
+          // drop its state and skip. pc.close() does NOT flip either flag (the SDK
+          // gets no signal), so a dead subscriber transport still lands here.
+          if (!publication.isSubscribed || publication.isMuted) {
+            this.inboundFlowState.delete(publication.trackSid);
+            return;
           }
+
+          expected.push(publication);
         });
       });
 
-      // Drop state for tracks that are no longer live candidates.
+      const expectedSids = new Set(expected.map((pub) => pub.trackSid));
+
+      // Drop state for tracks no longer expected (unpublished / participant left).
       Array.from(this.inboundFlowState.keys()).forEach((sid) => {
-        if (!liveSids.has(sid)) this.inboundFlowState.delete(sid);
+        if (!expectedSids.has(sid)) this.inboundFlowState.delete(sid);
       });
 
       let stalledSid: string | null = null;
 
       // eslint-disable-next-line no-restricted-syntax
-      for (const publication of candidates) {
-        const { trackSid } = publication;
-        const track = publication.track as RemoteTrack;
-        // eslint-disable-next-line no-await-in-loop
-        const packets = await LiveKitAudioBridge.getInboundAudioPackets(track);
+      for (const publication of expected) {
+        const { trackSid, track } = publication;
+        // A null reading means no inbound audio is observable this poll: either
+        // there is no attached track or getStats is unreachable (the subscriber PC
+        // was closed - getStats rejects). Either way we cannot read a count.
+        const packets = track
+          // eslint-disable-next-line no-await-in-loop
+          ? await LiveKitAudioBridge.getInboundAudioPackets(track)
+          : null;
         const prev = this.inboundFlowState.get(trackSid);
 
         if (packets === null) {
-          // No measurable inbound flow this poll. For a track we had already
-          // baselined (was delivering audio), a vanished/erroring stats report
-          // means the inbound path died - count it as a flat poll. Without a
-          // baseline yet, wait for stats to appear before judging.
-          if (prev) {
+          // Only a flat/dead reading on a track that WAS delivering audio counts
+          // as a failure - a dead subscriber transport. A track that never
+          // received a packet (lastPackets === 0) is still ramping up; wait.
+          if (prev && prev.lastPackets > 0) {
             const flatPolls = prev.flatPolls + 1;
             this.inboundFlowState.set(trackSid, { lastPackets: prev.lastPackets, flatPolls });
 
@@ -761,8 +771,9 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
         } else if (!prev || packets > prev.lastPackets) {
           // First observation (seed baseline) or audio is flowing - no stall.
           this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls: 0 });
-        } else {
-          // Expected audio but no new packets - count a flat poll.
+        } else if (prev.lastPackets > 0) {
+          // Was delivering audio and is now flat - count a flat poll. (A track
+          // still at zero has not started yet; keep waiting rather than flag it.)
           const flatPolls = prev.flatPolls + 1;
           this.inboundFlowState.set(trackSid, { lastPackets: packets, flatPolls });
 
