@@ -192,6 +192,7 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
   const isReconnectingRef = useRef(false);
 
   const onDisconnected = useCallback((reason?: DisconnectReason) => {
+    logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] component onDisconnected reason=${reason} connAttempts=${connAttempts}`);
     logger.warn({
       logCode: 'livekit_room_disconnected',
       extraInfo: {
@@ -221,6 +222,7 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
   }, [isClientConnected, url, iceServers, connAttempts]);
 
   const onConnected = useCallback(() => {
+    logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] component onConnected: room (re)connected; subscriber transport should re-subscribe via autoSubscribe');
     logger.info({
       logCode: 'livekit_room_connected',
       extraInfo: {
@@ -275,7 +277,11 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
       },
     }, `LiveKit reconnect attempt ${connAttempts}`);
     setConnError(null);
-    liveKitRoom.connect(url, token, connectOptions).catch((error) => {
+    logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] component reconnect effect: calling liveKitRoom.connect attempt=${connAttempts}`);
+    liveKitRoom.connect(url, token, connectOptions).then(() => {
+      logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] component reconnect effect: liveKitRoom.connect RESOLVED attempt=${connAttempts}`);
+    }).catch((error) => {
+      logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] component reconnect effect: liveKitRoom.connect REJECTED attempt=${connAttempts} err=${(error as Error)?.message}`);
       logger.debug({
         logCode: 'livekit_room_connect_error',
         extraInfo: {
@@ -355,6 +361,9 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
   const handleFatalError = useCallback((event: CustomEvent) => {
     const { error, source } = event.detail;
 
+    // eslint-disable-next-line max-len
+    logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] handleFatalError ENTRY source=${source} reconnectOnFatalFailures=${reconnectOnFatalFailures} isReconnecting=${isReconnectingRef.current} connAttempts=${connAttempts}/${MAX_CONN_ATTEMPTS} err=${error?.message}`);
+
     logger.error({
       logCode: 'livekit_fatal_error_reconnect',
       extraInfo: {
@@ -366,9 +375,14 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
       },
     }, `LiveKit: fatal error detected - ${error?.message}, reconnect=${reconnectOnFatalFailures}`);
 
-    if (!reconnectOnFatalFailures) return;
+    if (!reconnectOnFatalFailures) {
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] handleFatalError SKIP: reconnectOnFatalFailures=false');
+      return;
+    }
 
     if (isReconnectingRef.current || connAttempts >= MAX_CONN_ATTEMPTS) {
+      // eslint-disable-next-line max-len
+      logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] handleFatalError SKIP guarded: isReconnecting=${isReconnectingRef.current} maxAttemptsHit=${connAttempts >= MAX_CONN_ATTEMPTS}`);
       logger.debug({
         logCode: 'livekit_fatal_error_reconnect_skipped',
         extraInfo: {
@@ -383,13 +397,16 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
       return;
     }
 
+    logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] handleFatalError: passing guards -> disconnect() then ForcedReconnectionError');
     notify(intl.formatMessage(intlMessages.mediaReconnecting), 'warning', 'warning');
     isReconnectingRef.current = true;
     liveKitRoom.disconnect().then(() => {
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] handleFatalError: disconnect() RESOLVED -> set ForcedReconnectionError + bump connAttempts (drives reconnect effect)');
       const fatalError = new ForcedReconnectionError('Fatal error recovery');
       setConnError(fatalError);
       setConnAttempts((prev) => prev + 1);
     }).catch((disconnectError: Error) => {
+      logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] handleFatalError: disconnect() REJECTED err=${disconnectError?.message}`);
       logger.error({
         logCode: 'livekit_fatal_error_disconnect_failed',
         extraInfo: {
@@ -400,6 +417,7 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
         },
       }, 'LiveKit: failed to disconnect during fatal error recovery');
     }).finally(() => {
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] handleFatalError: finally -> isReconnectingRef reset to false');
       isReconnectingRef.current = false;
     });
   }, [intl, reconnectOnFatalFailures, connAttempts]);

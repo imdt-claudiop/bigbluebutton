@@ -331,6 +331,8 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     // A freshly (re)subscribed track gets a clean flow baseline so a prior,
     // stale packet count cannot be misread as a stall, and ensures the health
     // check is running while we have remote audio to watch.
+    logger.info({ logCode: 'livekit_lk25313' },
+      `[LK25313] handleTrackSubscribed mic sid=${trackSid} -> reset baseline + ensure monitor`);
     this.inboundFlowState.delete(trackSid);
     this.startInboundHealthMonitor();
   }
@@ -526,6 +528,8 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
     // baseline and one that does not cannot immediately re-trigger.
     this.inboundFlowState.clear();
     this.inboundGraceUntil = Date.now() + RECONNECT_GRACE_MS;
+    logger.info({ logCode: 'livekit_lk25313' },
+      `[LK25313] handleRoomReconnected: reset detector + grace until ${this.inboundGraceUntil}`);
   }
 
   // Re-assert the desired muted state onto the local microphone track. LiveKit
@@ -639,7 +643,10 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
   // grace window + state reset here, plus the component-side guards, keep a
   // failed recovery from looping.
   private triggerSubscriberRecovery(reason: string): void {
-    if (this.isInboundCheckSuppressed()) return;
+    const suppressed = this.isInboundCheckSuppressed();
+    // eslint-disable-next-line max-len
+    logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] triggerSubscriberRecovery reason="${reason}" suppressedByGrace=${suppressed} graceUntil=${this.inboundGraceUntil} now=${Date.now()}`);
+    if (suppressed) return;
 
     logger.error({
       logCode: 'livekit_audio_subscriber_recovery',
@@ -652,19 +659,27 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
 
     this.inboundGraceUntil = Date.now() + RECONNECT_GRACE_MS;
     this.inboundFlowState.clear();
+    logger.info({ logCode: 'livekit_lk25313' },
+      `[LK25313] triggerSubscriberRecovery DISPATCHING LK_FATAL_ERROR_EVENT reason="${reason}"`);
     this.dispatchFatalReconnect(new Error(`LiveKit subscriber audio recovery: ${reason}`));
   }
 
   private startInboundHealthMonitor(): void {
-    if (this.inboundHealthMonitor) return;
+    if (this.inboundHealthMonitor) {
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] startInboundHealthMonitor: already running (noop)');
+      return;
+    }
 
     this.inboundHealthMonitor = setInterval(this.checkInboundAudioFlow, INBOUND_HEALTH_POLL_MS);
+    // eslint-disable-next-line max-len
+    logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] startInboundHealthMonitor: STARTED interval=${INBOUND_HEALTH_POLL_MS}ms threshold=${INBOUND_STALL_THRESHOLD} minPkts=${INBOUND_MIN_PACKETS_PER_POLL}`);
   }
 
   private stopInboundHealthMonitor(): void {
     if (this.inboundHealthMonitor) {
       clearInterval(this.inboundHealthMonitor);
       this.inboundHealthMonitor = null;
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] stopInboundHealthMonitor: STOPPED');
     }
 
     this.inboundFlowState.clear();
@@ -714,18 +729,32 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
   // so neither produces a false trigger. A track that never delivered a packet is
   // never flagged as dead (nothing was lost yet).
   private async checkInboundAudioFlow(): Promise<void> {
-    if (this.isCheckingInboundFlow) return;
-    if (this.isInboundCheckSuppressed()) return;
-    if (this.liveKitRoom.state !== ConnectionState.Connected) return;
+    if (this.isCheckingInboundFlow) {
+      logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] poll SKIP: previous check still running');
+      return;
+    }
+    if (this.isInboundCheckSuppressed()) {
+      logger.info({ logCode: 'livekit_lk25313' },
+        `[LK25313] poll SKIP: suppressed by grace window graceUntil=${this.inboundGraceUntil} now=${Date.now()}`);
+      return;
+    }
+    if (this.liveKitRoom.state !== ConnectionState.Connected) {
+      logger.info({ logCode: 'livekit_lk25313' },
+        `[LK25313] poll SKIP: room state=${this.liveKitRoom.state} (not connected)`);
+      return;
+    }
 
     this.isCheckingInboundFlow = true;
 
     try {
       const expected: RemoteTrackPublication[] = [];
+      let micPubCount = 0;
 
       this.liveKitRoom.remoteParticipants.forEach((participant) => {
         participant.audioTrackPublications.forEach((publication) => {
           if (!LiveKitAudioBridge.isMicrophonePublication(publication)) return;
+
+          micPubCount += 1;
 
           // Audio is only EXPECTED when we want the track (subscribed) and the
           // publisher is sending it (not muted). A muted publisher or a
@@ -733,13 +762,20 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
           // drop its state and skip. pc.close() does NOT flip either flag (the SDK
           // gets no signal), so a dead subscriber transport still lands here.
           if (!publication.isSubscribed || publication.isMuted) {
+            // eslint-disable-next-line max-len
+            logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] gate FAIL sid=${publication.trackSid} isSubscribed=${publication.isSubscribed} isMuted=${publication.isMuted} hasTrack=${!!publication.track} -> dropped from expected`);
             this.inboundFlowState.delete(publication.trackSid);
             return;
           }
 
+          // eslint-disable-next-line max-len
+          logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] gate PASS sid=${publication.trackSid} isSubscribed=${publication.isSubscribed} isMuted=${publication.isMuted} hasTrack=${!!publication.track}`);
           expected.push(publication);
         });
       });
+
+      // eslint-disable-next-line max-len
+      logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] poll START micPubs=${micPubCount} expected=${expected.length} remoteParticipants=${this.liveKitRoom.remoteParticipants.size}`);
 
       const expectedSids = new Set(expected.map((pub) => pub.trackSid));
 
@@ -761,6 +797,12 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
           ? await LiveKitAudioBridge.getInboundAudioPackets(track)
           : null;
         const prev = this.inboundFlowState.get(trackSid);
+        const delta = (packets !== null && prev) ? packets - prev.lastPackets : null;
+        const isFlat = packets === null
+          ? !!(prev && prev.lastPackets > 0)
+          : !!(prev && delta !== null && delta < INBOUND_MIN_PACKETS_PER_POLL && prev.lastPackets > 0);
+        // eslint-disable-next-line max-len
+        logger.info({ logCode: 'livekit_lk25313' }, `[LK25313] measure sid=${trackSid} hasTrack=${!!track} curPkts=${packets} prevPkts=${prev ? prev.lastPackets : 'none'} delta=${delta} min=${INBOUND_MIN_PACKETS_PER_POLL} flat=${isFlat} flatPollsBefore=${prev ? prev.flatPolls : 0}/${INBOUND_STALL_THRESHOLD}`);
 
         if (packets === null) {
           // Only a dead reading on a track that WAS delivering audio counts as a
@@ -801,7 +843,11 @@ export default class LiveKitAudioBridge extends BaseAudioBridge {
       }
 
       if (stalledSid) {
+        logger.info({ logCode: 'livekit_lk25313' },
+          `[LK25313] poll END: STALL REACHED sid=${stalledSid} -> calling triggerSubscriberRecovery`);
         this.triggerSubscriberRecovery(`inbound audio stalled - ${stalledSid}`);
+      } else {
+        logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] poll END: no stall this round');
       }
     } catch (error) {
       logger.warn({
