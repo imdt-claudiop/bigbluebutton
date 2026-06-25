@@ -42,6 +42,10 @@ import LKAutoplayModalContainer from '/imports/ui/components/livekit/autoplay-mo
 import { ForcedReconnectionError } from '/imports/ui/components/livekit/errors';
 import connectionStatus, { MetricStatus } from '/imports/ui/core/graphql/singletons/connectionStatus';
 import SelectiveSubscription from '/imports/ui/components/livekit/selective-subscription/component';
+import {
+  startInboundAudioHealthMonitor,
+  stopInboundAudioHealthMonitor,
+} from '/imports/ui/components/livekit/inbound-audio-health';
 import { useSpeakerLevel } from '/imports/ui/components/audio/audio-graphql/audio-controls/input-stream-live-selector/service';
 import { notify } from '/imports/ui/services/notification';
 
@@ -429,6 +433,21 @@ const BBBLiveKitRoom: React.FC<BBBLiveKitRoomProps> = ({
       window.removeEventListener(LK_FATAL_ERROR_EVENT, handleFatalError as EventListener);
     };
   }, [handleFatalError]);
+
+  // Subscriber-side audio health check (issue 25313). Runs for every audio
+  // participant - including a listen-only viewer, who never instantiates the
+  // publish-side audio bridge - so a flatline/dead subscriber transport is
+  // detected here rather than in the bridge (which only the publisher path runs).
+  useEffect(() => {
+    if (!usingAudio) return undefined;
+
+    logger.info({ logCode: 'livekit_lk25313' }, '[LK25313] BBBLiveKitRoom: usingAudio -> start inbound audio health monitor');
+    startInboundAudioHealthMonitor();
+
+    return () => {
+      stopInboundAudioHealthMonitor();
+    };
+  }, [usingAudio]);
 
   // Screen share requires audio playback as well (Chrome supports it)
   const withAudioPlayback = usingAudio || usingScreenShare;
