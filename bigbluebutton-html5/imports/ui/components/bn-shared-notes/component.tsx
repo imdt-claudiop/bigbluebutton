@@ -219,6 +219,9 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
   const STATIC_FORMATTING_TOOLBAR_ENABLED = window.meetingClientSettings
     ?.public?.sharedNotes?.staticFormattingToolbar ?? true;
 
+  const CONTAIN_TABLE_CONTROLS_OVERFLOW = window.meetingClientSettings
+    ?.public?.sharedNotes?.containTableControlsOverflow ?? true;
+
   const MAX_PASTE_SIZE = MAX_UPDATE_SHARED_NOTES * 1024;
 
   const intlRef = React.useRef(intl);
@@ -489,6 +492,24 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
             color: #9b9a97;
             font-size: 0.8em;
             margin-top: 0.25em;
+          }
+        `}
+        {CONTAIN_TABLE_CONTROLS_OVERFLOW && `
+          /* Keep a wide table's floating "add row/column" handles inside the
+             narrow shared-notes panel. The table itself stays fully scrollable
+             via its own .tableWrapper (overflow-x: auto); only these absolutely
+             positioned handles, sized to the full table width, would otherwise
+             spill past the panel. Clamp them to the editor's visible content
+             width: 100cqw is the .bn-container inline size and 60px is the
+             editor's horizontal padding (padding-inline: 35px 25px above). The
+             left side menu is a separate handle and is left untouched. */
+          .bn-container {
+            container-type: inline-size;
+          }
+          .bn-extend-button-add-remove-rows,
+          .bn-extend-button-add-remove-columns {
+            max-width: calc(100cqw - 60px) !important;
+            min-width: 0 !important;
           }
         `}
       </style>
