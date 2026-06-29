@@ -43,6 +43,7 @@ import ColorStyleButton from './color-style-button/component';
 import NestBlockButton from './nest-block-button/component';
 import UnnestBlockButton from './unnest-block-button/component';
 import createLatexBlock from './latex-block/LatexBlock';
+import createChartBlock from './chart-block/ChartBlock';
 import 'katex/dist/katex.min.css';
 
 // Force-retain `Awareness` against a webpack tree-shaking interaction that
@@ -192,6 +193,7 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
     blockSpecs: {
       ...remainingBlockSpecs,
       latex: createLatexBlock(),
+      chart: createChartBlock(),
     },
   });
 
@@ -216,6 +218,9 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
 
   const STATIC_FORMATTING_TOOLBAR_ENABLED = window.meetingClientSettings
     ?.public?.sharedNotes?.staticFormattingToolbar ?? true;
+
+  const CONTAIN_TABLE_CONTROLS_OVERFLOW = window.meetingClientSettings
+    ?.public?.sharedNotes?.containTableControlsOverflow ?? true;
 
   const MAX_PASTE_SIZE = MAX_UPDATE_SHARED_NOTES * 1024;
 
@@ -452,6 +457,60 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
           .latex-block-textarea::placeholder {
             color: #9b9a97;
           }
+          /* Chart block: remove selection outline like the LaTeX block */
+          .ProseMirror-selectednode > .bn-block-content > .chart-block,
+          .bn-block-content.ProseMirror-selectednode > .chart-block {
+            outline: none !important;
+            border-radius: 0 !important;
+          }
+          .chart-block-rendered {
+            width: 100%;
+            cursor: pointer;
+          }
+          .chart-block-content {
+            width: 100%;
+          }
+          .chart-block-editing {
+            display: flex;
+            flex-direction: column;
+          }
+          .chart-block-textarea {
+            width: 100%;
+            font-family: monospace;
+            resize: vertical;
+          }
+          .chart-block-textarea::placeholder {
+            color: #9b9a97;
+          }
+          .chart-block-placeholder {
+            color: #9b9a97;
+          }
+          .chart-block-error {
+            color: #c03221;
+          }
+          .chart-block-hint {
+            color: #9b9a97;
+            font-size: 0.8em;
+            margin-top: 0.25em;
+          }
+        `}
+        {CONTAIN_TABLE_CONTROLS_OVERFLOW && `
+          /* Keep a wide table's floating "add row/column" handles inside the
+             narrow shared-notes panel. The table itself stays fully scrollable
+             via its own .tableWrapper (overflow-x: auto); only these absolutely
+             positioned handles, sized to the full table width, would otherwise
+             spill past the panel. Clamp them to the editor's visible content
+             width: 100cqw is the .bn-container inline size and 60px is the
+             editor's horizontal padding (padding-inline: 35px 25px above). The
+             left side menu is a separate handle and is left untouched. */
+          .bn-container {
+            container-type: inline-size;
+          }
+          .bn-extend-button-add-remove-rows,
+          .bn-extend-button-add-remove-columns {
+            max-width: calc(100cqw - 60px) !important;
+            min-width: 0 !important;
+          }
         `}
       </style>
       {notificationErrorMessage && (
@@ -487,6 +546,15 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
                 aliases: ['latex', 'math', 'formula', 'equation'],
                 group: 'Other',
                 subtext: 'Insert a LaTeX math formula',
+              } as DefaultReactSuggestionItem,
+              {
+                title: 'Chart',
+                onItemClick: () => {
+                  insertOrUpdateBlockForSlashMenu(editor, { type: 'chart' });
+                },
+                aliases: ['chart', 'pie', 'scatter', 'graph'],
+                group: 'Other',
+                subtext: 'Insert a pie or scatter chart from JSON',
               } as DefaultReactSuggestionItem,
             ],
             query,

@@ -17,4 +17,8 @@ test.describe('Shared Notes - BlockNote', { tag: '@ci' }, () => {
     linkIssue(25122);
     await sharedNotes.exportEmptyNotesAsPDF();
   });
+
+  test('Wide table controls stay inside the shared notes panel', async () => {
+    await sharedNotes.tableControlsStayWithinPanel();
+  });
 });

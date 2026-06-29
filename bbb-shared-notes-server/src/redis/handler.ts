@@ -7,6 +7,7 @@ import path from 'node:path';
 import { uploadPresentation } from './service/uploadPresentation';
 import { documentNamePrefix } from '../hocuspocus/utils';
 import { pushInitialContent } from './service/pushInitialContent';
+import { appendPollChartToNotes, PieEntry } from './service/appendPollChart';
 import { markDocumentEnded } from '../hocuspocus/extensions/postgresql';
 
 const logger = new Logger('redis handler');
@@ -147,6 +148,43 @@ const handleSharedNotesCreate = async (header: MessageHeader, body: MessageBody)
   }
 
   sender.send('sharedNotesCreated', meetingId, { padId, externalId, model });
+};
+
+const handlePollShowResult = async (header: MessageHeader, body: MessageBody): Promise<void> => {
+  const { meetingId } = header;
+  const { pollId, poll } = body;
+
+  if (typeof pollId !== 'string' || pollId === '' || poll === null || typeof poll !== 'object') {
+    logger.warn('Ignoring malformed PollShowResultEvtMsg', { meetingId });
+    return;
+  }
+
+  const answers = Array.isArray(poll.answers) ? poll.answers : [];
+
+  // Build the pie data defensively: the html5 validator (parseChartSpec) DROPS
+  // entries with an empty/non-string label or a non-finite/negative value, so a
+  // server-written chart would be silently emptied otherwise. Guarantee a non-empty
+  // label (fall back to "Option N") and a finite value >= 0 for every answer.
+  const data: PieEntry[] = answers.map((answer: any, index: number) => {
+    const key = answer?.key;
+    const label = typeof key === 'string' && key.trim() !== '' ? key.trim() : `Option ${index + 1}`;
+    const numVotes = answer?.numVotes;
+    const value = typeof numVotes === 'number' && Number.isFinite(numVotes) && numVotes >= 0 ? numVotes : 0;
+    return { label, value };
+  });
+
+  if (data.length === 0) {
+    logger.warn('PollShowResultEvtMsg has no answers, skipping chart', { meetingId, pollId });
+    return;
+  }
+
+  const padId = `${documentNamePrefix}${meetingId}`;
+  const statusReturn = await appendPollChartToNotes(padId, pollId, data);
+  if (statusReturn.error) {
+    logger.error('Failed to write poll chart to notes', {
+      ...statusReturn, meetingId, pollId, padId,
+    });
+  }
 };
 
 const handleBlockNoteExport = async (header: MessageHeader, body: MessageBody): Promise<void> => {
@@ -350,6 +388,9 @@ const handler: PubSubHandler = {
           break;
         case 'BNSharedNotesCreateCmdMsg':
           await handleSharedNotesCreate(header, body);
+          break;
+        case 'PollShowResultEvtMsg':
+          await handlePollShowResult(header, body);
           break;
         case 'ExportBNSharedNotesEvtMsg':
           await handleBlockNoteExport(header, body);
