@@ -830,6 +830,13 @@ public:
     # editor and always visible. When disabled, BlockNote's default floating
     # toolbar appears only when text is selected.
     staticFormattingToolbar: true
+    # When enabled, the floating table "add row/column" handles are clamped to
+    # the editor's visible content width so a wide table's controls do not
+    # overflow the narrow shared-notes panel (the table itself stays fully
+    # scrollable). Configurable because the upstream BlockNote table-overflow
+    # fix is already released (0.51.0); an admin can disable this BBB override
+    # if a future @blocknote version makes it redundant or conflicting.
+    containTableControlsOverflow: true
   media:
     audio:
       # defaultFullAudioBridge: bridge to be used by full audio mechanism.
