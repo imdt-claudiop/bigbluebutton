@@ -48,6 +48,31 @@ test.describe.parallel('Shared Notes - BlockNote Markdown', { tag: '@ci' }, () =
     });
   });
 
+  test.describe('Menu option gating', () => {
+    let markdownSharedNotes: MarkdownSharedNotes;
+
+    test.beforeEach(async ({ browser, context }, testInfo) => {
+      markdownSharedNotes = new MarkdownSharedNotes(browser, context);
+      await initializePages(markdownSharedNotes, browser, {
+        isMultiUser: false,
+        createParameter: 'sharedNotesEditor=blocknote',
+        testInfo,
+      });
+    });
+
+    test('Markdown menu items are hidden by default', async () => {
+      await markdownSharedNotes.markdownOptionsHiddenByDefault();
+    });
+
+    test('Import from Markdown item is shown when importMarkdownEnabled is true', async () => {
+      await markdownSharedNotes.importMarkdownShownWhenEnabled();
+    });
+
+    test('Export as Markdown item is shown when exportMarkdownEnabled is true', async () => {
+      await markdownSharedNotes.exportMarkdownShownWhenEnabled();
+    });
+  });
+
   test.describe('Init from Markdown create parameter', () => {
     let markdownSharedNotes: MarkdownSharedNotes;
 

@@ -22,18 +22,28 @@ export async function startBlockNoteSharedNotes(testPage: Page): Promise<void> {
 // menu items off in a minor update), so the notes options menu hides them unless
 // the settings are turned on. The notes options menu bakes its items when it mounts
 // (opening the menu does not re-render it), so tests that exercise those items enable
-// both flags on the running client before opening shared notes. They are client-only
-// settings with no create-call parameter to seed them.
-export async function enableMarkdownNotesOptions(testPage: Page): Promise<void> {
-  await testPage.page.evaluate(() => {
-    const { sharedNotes } = (
-      globalThis as unknown as {
-        meetingClientSettings: { public: { sharedNotes: Record<string, boolean> } };
-      }
-    ).meetingClientSettings.public;
-    sharedNotes.importMarkdownEnabled = true;
-    sharedNotes.exportMarkdownEnabled = true;
-  });
+// the relevant flag(s) on the running client before opening shared notes. They are
+// client-only settings with no create-call parameter to seed them.
+export async function enableMarkdownNotesOptions(
+  testPage: Page,
+  options: { importMarkdown?: boolean; exportMarkdown?: boolean } = {},
+): Promise<void> {
+  // Default both flags on so existing callers keep the "enable everything" behaviour;
+  // gating tests pass only the flag they want to exercise so the other stays off.
+  const importMarkdown = options.importMarkdown ?? true;
+  const exportMarkdown = options.exportMarkdown ?? true;
+  await testPage.page.evaluate(
+    ({ importMarkdown, exportMarkdown }) => {
+      const { sharedNotes } = (
+        globalThis as unknown as {
+          meetingClientSettings: { public: { sharedNotes: Record<string, boolean> } };
+        }
+      ).meetingClientSettings.public;
+      sharedNotes.importMarkdownEnabled = importMarkdown;
+      sharedNotes.exportMarkdownEnabled = exportMarkdown;
+    },
+    { importMarkdown, exportMarkdown },
+  );
 }
 
 export function getBlockNoteEditorLocator(testPage: Page): Locator {

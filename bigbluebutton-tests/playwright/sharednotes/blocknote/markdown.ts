@@ -48,6 +48,57 @@ export function markdownCreateParameter(markdown: string): string {
 }
 
 export class MarkdownSharedNotes extends MultiUsers {
+  // Feature: by default both Markdown menu items are hidden (the import/export
+  // flags ship as false on BBB 3.0). Asserts the "off" baseline that the per-flag
+  // tests below flip.
+  async markdownOptionsHiddenByDefault() {
+    await startBlockNoteSharedNotes(this.modPage);
+    await this.modPage.waitAndClick(e.notesOptions);
+
+    await expect(
+      this.modPage.page.locator(e.importNotesFromMarkdown),
+      'import-from-markdown should be hidden when importMarkdownEnabled is false',
+    ).toBeHidden();
+    await expect(
+      this.modPage.page.locator(e.exportNotesAsMarkdown),
+      'export-as-markdown should be hidden when exportMarkdownEnabled is false',
+    ).toBeHidden();
+  }
+
+  // Feature: turning importMarkdownEnabled on (leaving export off) surfaces only the
+  // import item; the export item stays hidden. Proves the two flags gate independently.
+  async importMarkdownShownWhenEnabled() {
+    await enableMarkdownNotesOptions(this.modPage, { importMarkdown: true, exportMarkdown: false });
+    await startBlockNoteSharedNotes(this.modPage);
+    await this.modPage.waitAndClick(e.notesOptions);
+
+    await expect(
+      this.modPage.page.locator(e.importNotesFromMarkdown),
+      'import-from-markdown should be visible when importMarkdownEnabled is true',
+    ).toBeVisible();
+    await expect(
+      this.modPage.page.locator(e.exportNotesAsMarkdown),
+      'export-as-markdown should stay hidden when only importMarkdownEnabled is true',
+    ).toBeHidden();
+  }
+
+  // Feature: turning exportMarkdownEnabled on (leaving import off) surfaces only the
+  // export item; the import item stays hidden. The per-flag counterpart of the above.
+  async exportMarkdownShownWhenEnabled() {
+    await enableMarkdownNotesOptions(this.modPage, { importMarkdown: false, exportMarkdown: true });
+    await startBlockNoteSharedNotes(this.modPage);
+    await this.modPage.waitAndClick(e.notesOptions);
+
+    await expect(
+      this.modPage.page.locator(e.exportNotesAsMarkdown),
+      'export-as-markdown should be visible when exportMarkdownEnabled is true',
+    ).toBeVisible();
+    await expect(
+      this.modPage.page.locator(e.importNotesFromMarkdown),
+      'import-from-markdown should stay hidden when only exportMarkdownEnabled is true',
+    ).toBeHidden();
+  }
+
   // Feature: "Export as Markdown" kebab item downloads a .md file with the notes.
   async exportAsMarkdown() {
     await enableMarkdownNotesOptions(this.modPage);
