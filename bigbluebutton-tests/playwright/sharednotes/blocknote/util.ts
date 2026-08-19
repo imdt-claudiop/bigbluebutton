@@ -7,6 +7,8 @@ import { Page } from '../../core/page';
 // The BlockNote editor renders inline (no Etherpad iframes); its editable area
 // is the ProseMirror root `.bn-editor` inside the shared-notes panel.
 export const BLOCKNOTE_EDITOR = '[data-test="notes"] .bn-editor';
+export const BLOCKNOTE_LINK_TOOLBAR = '.bn-link-toolbar';
+export const BLOCKNOTE_LINK_FORM = '.bn-form-popover';
 
 // U+2060 word-joiner: y-prosemirror wraps the remote collaboration-cursor name
 // in these invisible separators, which is what #25225 leaked into the link.
@@ -42,6 +44,22 @@ export function getBlockNoteEditorLocator(testPage: Page): Locator {
 
 export function getBlockNoteLinkLocator(testPage: Page): Locator {
   return testPage.page.locator(`${BLOCKNOTE_EDITOR} a`);
+}
+
+export async function hoverBlockNoteLink(testPage: Page): Promise<void> {
+  const link = getBlockNoteLinkLocator(testPage);
+  const rect = await link.evaluate((element) => {
+    const clientRect = element.getClientRects()[0];
+    return {
+      x: clientRect.x,
+      y: clientRect.y,
+      width: clientRect.width,
+      height: clientRect.height,
+    };
+  });
+  await testPage.page.mouse.move(rect.x + 5, rect.y + rect.height / 2);
+  await testPage.page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2, { steps: 5 });
+  await testPage.page.locator(BLOCKNOTE_LINK_TOOLBAR).waitFor({ timeout: ELEMENT_WAIT_LONGER_TIME });
 }
 
 /**

@@ -382,11 +382,14 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
 
   // Keep editor focus when clicking SideMenu/DragHandleMenu items.
   // Skip draggable="true" elements — preventDefault on mousedown prevents drag.
+  // Also skip form controls and BlockNote form popovers (e.g. the Edit-link popover) - stealing their
+  // native focus made link editing impossible (issue #25226).
   React.useEffect(() => {
     const { portalElement } = editor;
     if (!portalElement) return undefined;
     const mousedownHandler = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest('[draggable="true"]')) return;
+      const target = e.target as HTMLElement;
+      if (target.closest('[draggable="true"], input, textarea, select, [contenteditable="true"], .bn-form-popover')) return;
       e.preventDefault();
       editor.focus();
     };
