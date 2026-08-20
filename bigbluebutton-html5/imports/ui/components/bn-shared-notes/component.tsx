@@ -16,7 +16,6 @@ import {
   ColorStyleButton,
   ComponentsContext,
   FormattingToolbar,
-  LinkToolbarController,
   NestBlockButton,
   UnnestBlockButton,
   useComponentsContext,
@@ -489,7 +488,6 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
         editor={editor}
         theme="light"
         formattingToolbar={!STATIC_FORMATTING_TOOLBAR_ENABLED}
-        linkToolbar={false}
         renderEditor={false}
       >
         {STATIC_FORMATTING_TOOLBAR_ENABLED && editable && (
@@ -517,14 +515,7 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
             </div>
           </ToolbarWithAccessibleMenus>
         )}
-        <BlockNoteViewEditor>
-          {/* Wrapped links use a union bounding box. Positioning below it keeps the
-              toolbar next to the last visual line while preserving BlockNote's
-              default offset, flip middleware, and horizontal alignment. */}
-          <LinkToolbarController
-            floatingUIOptions={{ useFloatingOptions: { placement: 'bottom-start' } }}
-          />
-        </BlockNoteViewEditor>
+        <BlockNoteViewEditor />
       </BlockNoteView>
       {isImportModalOpen && editable && (
         <MarkdownImportModal

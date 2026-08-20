@@ -27,8 +27,4 @@ test.describe.parallel('Shared Notes - BlockNote', { tag: '@ci' }, () => {
   test('Link editor must not overflow the notes panel', async () => {
     await blockNoteSharedNotes.linkEditorMustNotOverflowNotesPanel();
   });
-
-  test('Link toolbar must stay next to a wrapped link', async () => {
-    await blockNoteSharedNotes.linkToolbarMustStayNextToWrappedLink();
-  });
 });

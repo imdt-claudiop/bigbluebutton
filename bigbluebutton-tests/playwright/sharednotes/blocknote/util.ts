@@ -81,39 +81,20 @@ export function getBlockNoteLinkLocator(testPage: Page) {
   return testPage.page.locator(`${e.blockNoteEditor} a`);
 }
 
-export async function hoverBlockNoteLink(testPage: Page, fragmentIndex = 0): Promise<void> {
+export async function hoverBlockNoteLink(testPage: Page): Promise<void> {
   const link = getBlockNoteLinkLocator(testPage);
-  const rect = await link.evaluate((element, index) => {
-    const rects = element.getClientRects();
-    const clientRect = rects[index < 0 ? rects.length + index : index];
+  const rect = await link.evaluate((element) => {
+    const clientRect = element.getClientRects()[0];
     return {
       x: clientRect.x,
       y: clientRect.y,
       width: clientRect.width,
       height: clientRect.height,
     };
-  }, fragmentIndex);
+  });
   await testPage.page.mouse.move(rect.x + 5, rect.y + rect.height / 2);
   await testPage.page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2, { steps: 5 });
   await testPage.page.locator(e.blockNoteLinkToolbar).waitFor({ timeout: ELEMENT_WAIT_LONGER_TIME });
-}
-
-export async function readLinkToolbarGeometry(testPage: Page) {
-  const link = getBlockNoteLinkLocator(testPage);
-  const rects = await link.evaluate((element) =>
-    Array.from(element.getClientRects()).map((rect) => ({
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
-      bottom: rect.bottom,
-    })),
-  );
-  const union = await link.boundingBox();
-  const toolbar = await testPage.page.locator(e.blockNoteLinkToolbar).boundingBox();
-  const panel = await testPage.page.locator(e.sharedNotesBackground).boundingBox();
-
-  return { rects, union, toolbar, panel };
 }
 
 export async function openBlockNoteLinkEditor(testPage: Page): Promise<void> {
