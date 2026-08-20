@@ -16,6 +16,7 @@ import {
   ColorStyleButton,
   ComponentsContext,
   FormattingToolbar,
+  LinkToolbarController,
   NestBlockButton,
   UnnestBlockButton,
   useComponentsContext,
@@ -40,6 +41,7 @@ import { notify } from '../../services/notification';
 import TextAlignSelect from './text-align-select/component';
 import MarkdownImportModal from './markdown-import-modal/component';
 import { useSharedNotesImport } from './import-context';
+import glueLinkToolbarToActiveLine from './link-toolbar-anchor';
 
 // Force-retain `Awareness` against a webpack tree-shaking interaction that
 // otherwise drops this class while keeping its `extends Observable` expression,
@@ -181,6 +183,13 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
   } = props;
 
   const intl = useIntl();
+  const pointer = React.useRef({ x: -1, y: -1 });
+  const linkToolbarFloatingUIOptions = React.useMemo(() => ({
+    useFloatingOptions: {
+      placement: 'top-start' as const,
+      middleware: [glueLinkToolbarToActiveLine(pointer)],
+    },
+  }), []);
 
   const { isImportModalOpen, closeImportModal } = useSharedNotesImport();
 
@@ -380,7 +389,12 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
   }, [editor]);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      onMouseMove={(event) => {
+        pointer.current = { x: event.clientX, y: event.clientY };
+      }}
+    >
       <style>
         {`
           /* BlockNote ships Inter and hardcodes it; inherit the client font
@@ -488,6 +502,7 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
         editor={editor}
         theme="light"
         formattingToolbar={!STATIC_FORMATTING_TOOLBAR_ENABLED}
+        linkToolbar={false}
         renderEditor={false}
       >
         {STATIC_FORMATTING_TOOLBAR_ENABLED && editable && (
@@ -516,6 +531,7 @@ function BlockNoteApp(props: BlockNoteAppProps): React.ReactElement {
           </ToolbarWithAccessibleMenus>
         )}
         <BlockNoteViewEditor />
+        <LinkToolbarController floatingUIOptions={linkToolbarFloatingUIOptions} />
       </BlockNoteView>
       {isImportModalOpen && editable && (
         <MarkdownImportModal

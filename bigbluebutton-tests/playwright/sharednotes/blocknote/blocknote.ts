@@ -6,8 +6,11 @@ import { MultiUsers } from '../../user/multiusers';
 import {
   getBlockNoteEditorLocator,
   getBlockNoteLinkLocator,
+  hoverBlockNoteLink,
   openBlockNoteLinkEditor,
+  parkPointerAwayFromLink,
   readLinkAndCursorState,
+  readLinkToolbarGeometry,
   startBlockNoteSharedNotes,
   WORD_JOINER,
 } from './util';
@@ -94,6 +97,56 @@ export class BlockNoteSharedNotes extends MultiUsers {
       clientWidth: element.clientWidth,
     }));
     expect(scrollWidth, 'link editor content must fit within the popover').toBeLessThanOrEqual(clientWidth);
+  }
+
+  async linkToolbarMustStayNextToWrappedLink() {
+    const { sharedNotesEnabled } = this.modPage.settings || {};
+    if (!sharedNotesEnabled) {
+      await this.modPage.hasElement(e.chatButton, 'should display the public chat button');
+      await this.modPage.wasRemoved(e.sharedNotesSidebarButton, 'should not display the shared notes button');
+      return;
+    }
+
+    await startBlockNoteSharedNotes(this.modPage);
+    const editor = getBlockNoteEditorLocator(this.modPage);
+    await editor.click();
+    await this.modPage.page.keyboard.type(`${LINK_URL} `);
+
+    const link = getBlockNoteLinkLocator(this.modPage);
+    await expect(link, 'should create a link from the typed URL').toHaveCount(1, {
+      timeout: ELEMENT_WAIT_LONGER_TIME,
+    });
+
+    await hoverBlockNoteLink(this.modPage, -1);
+    const tailGeometry = await readLinkToolbarGeometry(this.modPage);
+    const { rects, union, toolbar, panel } = tailGeometry;
+    expect(rects.length, 'the URL should wrap across lines in the notes panel').toBeGreaterThan(1);
+    expect(union, 'the link should be visible').not.toBeNull();
+    expect(toolbar, 'the link toolbar should be visible').not.toBeNull();
+    expect(panel, 'the shared notes panel should be visible').not.toBeNull();
+    if (!union || !toolbar || !panel) return;
+
+    const tail = rects[rects.length - 1];
+    const toolbarBottom = toolbar.y + toolbar.height;
+    expect(toolbarBottom, 'link toolbar should stay above the pointed line').toBeLessThanOrEqual(tail.y + 1);
+    expect(tail.y - toolbarBottom, 'link toolbar should stay adjacent to the pointed line').toBeLessThanOrEqual(16);
+    expect(toolbarBottom, 'link toolbar should anchor past the wrapped link union top').toBeGreaterThan(union.y);
+
+    await parkPointerAwayFromLink(this.modPage);
+    await hoverBlockNoteLink(this.modPage, 0);
+    const headGeometry = await readLinkToolbarGeometry(this.modPage);
+    expect(headGeometry.toolbar, 'the link toolbar should be visible over the first line').not.toBeNull();
+    if (!headGeometry.toolbar) return;
+    const headToolbarBottom = headGeometry.toolbar.y + headGeometry.toolbar.height;
+    expect(headToolbarBottom, 'link toolbar should stay above the pointed first line').toBeLessThanOrEqual(
+      rects[0].y + 1,
+    );
+    expect(rects[0].y - headToolbarBottom, 'link toolbar should stay adjacent to the first line').toBeLessThanOrEqual(
+      16,
+    );
+    expect(toolbar.y + toolbar.height, 'link toolbar should stay inside the notes panel').toBeLessThanOrEqual(
+      panel.y + panel.height,
+    );
   }
 
   // Reproduces issue #25225: when a remote user's caret sits inside a link, that
