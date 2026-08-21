@@ -25,6 +25,12 @@ test.describe.parallel('User', { tag: '@ci' }, () => {
       await multiusers.raiseHandRejected();
     });
 
+    test('Raise Hand Rejection restricted to moderators', async ({ browser, context, page }, testInfo) => {
+      const multiusers = new MultiUsers(browser, context);
+      await multiusers.initModPage(page, { testInfo });
+      await multiusers.raiseHandRejectionRestrictedToModerators();
+    });
+
     test('Raise hand indicator on audio-only tile', async ({ browser, context, page }, testInfo) => {
       const multiusers = new MultiUsers(browser, context);
       await multiusers.initModPage(page, { testInfo });

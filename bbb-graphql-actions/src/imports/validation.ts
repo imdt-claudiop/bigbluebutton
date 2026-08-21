@@ -22,10 +22,6 @@ export const isModerator = (sessionVariables: Record<string, unknown>) => {
     return (sessionVariables['x-hasura-moderatorinmeeting'] !== "");
 };
 
-export const isPresenter = (sessionVariables: Record<string, unknown>) => {
-    return (sessionVariables['x-hasura-presenterinmeeting'] !== "");
-};
-
 export const isBreakout = (sessionVariables: Record<string, unknown>) => {
     return (sessionVariables['x-hasura-isbreakout'] === "true");
 };

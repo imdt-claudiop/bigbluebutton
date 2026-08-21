@@ -38,18 +38,11 @@ trait ChangeUserRaiseHandReqMsgHdlr extends RightsManagementTrait {
       msg.header.userId
     )
 
-    val isUserPresenter = !permissionFailed(
-      PermissionCheck.VIEWER_LEVEL,
-      PermissionCheck.PRESENTER_LEVEL,
-      liveMeeting.users2x,
-      msg.header.userId
-    )
-
     if (liveMeeting.props.meetingProp.disabledFeatures.contains("raiseHand")) {
       val meetingId = liveMeeting.props.meetingProp.intId
       val reason = "Raise hand is disabled for this meeting."
       PermissionCheck.ejectUserForFailedPermission(meetingId, msg.header.userId, reason, outGW, liveMeeting)
-    } else if (isUserSettingOwnProps || isUserModerator || isUserPresenter) {
+    } else if (isUserSettingOwnProps || isUserModerator) {
       for {
         user <- Users2x.findWithIntId(liveMeeting.users2x, msg.body.userId)
         newUserState <- Users2x.setUserRaiseHand(liveMeeting.users2x, user.intId, msg.body.raiseHand)

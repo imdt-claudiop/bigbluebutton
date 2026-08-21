@@ -203,6 +203,45 @@ export class MultiUsers {
     await this.userPage.hasElement(e.raiseHandBtn, 'should display the raise hand button after rejection');
   }
 
+  async raiseHandRejectionRestrictedToModerators() {
+    // Lowering someone else's hand is a moderator action. A presenter who is not
+    // a moderator must not be offered it, and the moderator must keep it - the
+    // moderator half is what keeps the negative assertions from passing for the
+    // trivial reason that nobody sees the button.
+    await this.modPage.waitForSelector(e.whiteboard);
+    await this.initUserPage();
+    await this.userPage.waitForSelector(e.whiteboard);
+    // the attendee becomes the presenter while staying a viewer; makePresenter
+    // leaves the user list open on both the moderator and the attendee page
+    await this.makePresenter();
+    await this.initUserPage2();
+    await this.userPage2.waitForSelector(e.whiteboard);
+
+    // two raised hands, neither belonging to the presenter, so the "lower all
+    // hands" button renders and no row is the presenter's own
+    await this.userPage2.waitAndClick(e.raiseHandBtn);
+    await this.userPage2.hasElement(e.lowerHandBtn, 'should display the lower hand button for the attendee');
+    await this.modPage.waitAndClick(e.raiseHandBtn);
+    await this.modPage.hasElement(e.lowerHandBtn, 'should display the lower hand button for the moderator');
+
+    await this.userPage.wasRemoved(
+      e.raiseHandRejection,
+      'should not offer "lower all hands" to a presenter who is not a moderator',
+    );
+    await this.userPage.wasRemoved(
+      e.lowerHandUserItem,
+      "should not offer lowering another user's hand to a presenter who is not a moderator",
+    );
+    await this.userPage2.hasElement(e.lowerHandBtn, 'should keep the attendee hand raised');
+
+    await this.modPage.hasElement(e.raiseHandRejection, 'should still offer "lower all hands" to the moderator');
+    await this.modPage.waitAndClick(e.raiseHandRejection);
+    await this.userPage2.hasElement(
+      e.raiseHandBtn,
+      'should display the raise hand button after the moderator lowered all hands',
+    );
+  }
+
   async raiseHandIndicatorOnAudioOnlyTile() {
     // Regression test for issue 25169: the raised hand indicator must also show
     // on audio-only tiles, not only on webcam tiles.
