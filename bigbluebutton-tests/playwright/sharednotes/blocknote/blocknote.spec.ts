@@ -31,4 +31,8 @@ test.describe.parallel('Shared Notes - BlockNote', { tag: '@ci' }, () => {
   test('Link toolbar must stay above the active line of a wrapped link', async () => {
     await blockNoteSharedNotes.linkToolbarMustStayNextToWrappedLink();
   });
+
+  test('Links open only on ctrl/cmd+click', async () => {
+    await blockNoteSharedNotes.linksOpenOnlyOnCtrlOrCmdClick();
+  });
 });
