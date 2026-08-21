@@ -28,7 +28,7 @@ export default function buildRedisMessage(sessionVariables: Record<string, unkno
   };
 
   //Moderator can set raiseHand=false for other user
-  if(isModerator(sessionVariables) && input.raiseHand !== undefined) {
+  if(isModerator(sessionVariables) && input.hasOwnProperty('userId')) {
     body.userId = <String>input.userId;
   }
 
