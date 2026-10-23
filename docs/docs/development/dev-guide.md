@@ -167,7 +167,7 @@ services:
 
 Then `docker compose up -d web`.
 
-For the HTML5 client, run the webpack dev server on your machine (Node 24), as `bigbluebutton-html5/run-dev.sh` does: a changed source file is recompiled and reloaded in the browser without a restart.
+For the HTML5 client, run the Vite dev server on your machine (Node 24), as `bigbluebutton-html5/run-dev.sh` does: a changed source file is recompiled and reloaded in the browser without a restart.
 
 ```bash
 cd bigbluebutton-html5 && npm ci && npm start
@@ -366,7 +366,7 @@ Install the npm dependencies.
 $ npm install
 ```
 
-Finally, run the HTML5 code and have it served.
+Finally, run the HTML5 code and have it served (Vite 8 / Rolldown / Oxc)
 
 ```bash
 $ npm start
@@ -495,7 +495,7 @@ Use `journalctl -u bbb-export-annotations -e` to see recent logs.
 
 ## Developing the Learning Dashboard
 
-The Learning Analytics Dashboard is a React application bundled with [webpack](https://webpack.js.org/), the same bundler the HTML5 client uses. It is served as static files by nginx under `/learning-analytics-dashboard/`.
+The Learning Analytics Dashboard is a React application bundled with [Vite](https://vite.dev/) 8 (Rolldown / Oxc), the same bundler family the HTML5 client uses. It is served as static files by nginx under `/learning-analytics-dashboard/`.
 
 To work on it with hot reload, run (as user `bigbluebutton` on your development server):
 
@@ -504,7 +504,7 @@ cd ~/dev/bigbluebutton/bbb-learning-dashboard
 ./run-dev.sh
 ```
 
-This starts webpack-dev-server on port 3100 and installs an nginx location that proxies `/learning-analytics-dashboard/` to it, including the hot-module-reload websocket, which connects back through nginx on port 443.
+This starts the Vite dev server on port 3100 and installs an nginx location that proxies `/learning-analytics-dashboard/` to it, including the hot-module-reload websocket, which connects back through nginx on port 443.
 
 To build the production bundle and have nginx serve the static files instead, run:
 

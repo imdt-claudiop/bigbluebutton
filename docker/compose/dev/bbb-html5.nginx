@@ -1,7 +1,8 @@
-# The html5 client from the webpack dev server (html5.yml, html5-container.yml in this
+# The html5 client from the Vite dev server (html5.yml, html5-container.yml in this
 # directory), as build/packages-template/bbb-html5/bbb-html5.nginx.dev
 location /html5client/ {
-  proxy_pass http://html5-dev:3000/;
+  # no trailing slash: Vite expects the /html5client/ prefix
+  proxy_pass http://html5-dev:3000;
   proxy_http_version 1.1;
   proxy_set_header Upgrade $http_upgrade;
   proxy_set_header Connection "Upgrade";

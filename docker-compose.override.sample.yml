@@ -6,7 +6,7 @@
 # uncomment its service below, then run `docker compose up -d web`. The bake target is the
 # image name without "bbb-". pull_policy: never lets `docker compose pull` skip the local image.
 #
-# For the HTML5 client, docker/compose/dev/html5.yml runs the webpack dev server instead of an
+# For the HTML5 client, docker/compose/dev/html5.yml runs the Vite dev server instead of an
 # image (see "Develop with Docker Compose" in the development guide). With COMPOSE_FILE set in
 # .env, compose reads this file only when COMPOSE_FILE lists it.
 
