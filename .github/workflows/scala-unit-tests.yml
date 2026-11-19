@@ -1,0 +1,50 @@
+name: Scala - unit tests
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "bbb-common-message/**"
+      - "akka-bbb-apps/**"
+      - "bbb-common-web/**"
+      - ".github/workflows/scala-unit-tests.yml"
+permissions:
+  contents: read
+jobs:
+  scala-unit-tests:
+    runs-on: ${{ vars.CI_LIGHT_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - name: Checkout PR's source merged into its target branch
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.number }}/merge
+      - name: Checkout commit/branch
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      # akka-bbb-apps and bbb-common-web depend on the bbb-common-message snapshot of this
+      # checkout, so it is published to the local repository before their tests run. Each
+      # module's tests run even when an earlier module's tests fail, so one red run reports
+      # all three.
+      - name: bbb-common-message - publish locally
+        id: publish-common-message
+        working-directory: bbb-common-message
+        run: sbt publishLocal
+      - name: bbb-common-message - test
+        working-directory: bbb-common-message
+        run: sbt test
+      - name: akka-bbb-apps - test
+        if: ${{ !cancelled() && steps.publish-common-message.outcome == 'success' }}
+        working-directory: akka-bbb-apps
+        run: sbt test
+      - name: bbb-common-web - test
+        if: ${{ !cancelled() && steps.publish-common-message.outcome == 'success' }}
+        working-directory: bbb-common-web
+        run: sbt test
