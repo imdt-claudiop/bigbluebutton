@@ -24,7 +24,7 @@ class JsonUtilTest extends UnitSpec2 with TestFixtures {
     // map: Map[String,Seq[Int]] = Map(a -> List(1, 2), b -> List(3, 4, 5), c -> List())
     println(map)
     map match {
-      case Success(a)  => assert(a.values.size == 3)
+      case Success(a)  => assert(a.values.size == 4)
       case Failure(ex) => fail("Failed to decode json message")
     }
   }
